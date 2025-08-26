@@ -634,6 +634,7 @@ int nvt_ts_mode_switch_extened(struct nvt_ts_data *ts, u8 *cmd, u8 len, bool pri
 int nvt_ts_mode_switch(struct nvt_ts_data *ts, u8 cmd, bool print_log);
 int pinctrl_configure(struct nvt_ts_data *ts, bool enable);
 void nvt_irq_enable(bool enable);
+bool nvt_ts_lcd_power_check(void);
 
 #if NVT_TOUCH_ESD_PROTECT
 extern void nvt_esd_check_enable(uint8_t enable);

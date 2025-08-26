@@ -27,15 +27,45 @@ extern int cam_ois_cmd_notifier_register(struct notifier_block *nb);
 extern int cam_ois_cmd_notifier_unregister(struct notifier_block *nb);
 extern int cam_ois_reg_read_notifier_register(struct notifier_block *nb);
 extern int cam_ois_reg_read_notifier_unregister(struct notifier_block *nb);
+extern int cam_ois_factory_mode_notifier_register(struct notifier_block *nb);
+extern int cam_ois_factory_mode_notifier_unregister(struct notifier_block *nb);
 
 #define AOIS_SUBCMD_WRITE		1
 #define AOIS_SUBCMD_READ		2
+#define AOIS_SUBCMD_FACTORY		3
 
 struct aois_data {
 	uint16_t addr;
 	int8_t size;
 	int8_t data[AOIS_MAX_DATA];
 };
+
+
+static int aois_cmd_factory_notifier(struct notifier_block *nb, unsigned long val, void *data)
+{
+	int ret;
+	char factory_op;
+
+	if (!data) {
+		shub_errf("data is NULL");
+		return NOTIFY_BAD;
+	}
+
+	memcpy(&factory_op, data, sizeof(factory_op));
+#ifdef CONFIG_SHUB_DEBUG
+	shub_infof("[DEBUG] factory mode %d", factory_op);
+#endif
+	ret = shub_send_command(CMD_SETVALUE, SENSOR_TYPE_AOIS, AOIS_SUBCMD_FACTORY, (char *)&factory_op,
+							sizeof(factory_op));
+
+	if (ret < 0) {
+		shub_errf("CMD fail %d\n", ret);
+		return NOTIFY_BAD;
+	}
+
+	return NOTIFY_OK;
+}
+
 
 static int aois_cmd_write_notifier(struct notifier_block *nb, unsigned long val, void *data)
 {
@@ -48,9 +78,9 @@ static int aois_cmd_write_notifier(struct notifier_block *nb, unsigned long val,
 	}
 
 	memcpy(&cmd_data, data, sizeof(cmd_data));
-
+#ifdef CONFIG_SHUB_DEBUG
 	shub_infof("[DEBUG] 0x%x %d", cmd_data.addr, cmd_data.size);
-
+#endif
 	ret = shub_send_command(CMD_SETVALUE, SENSOR_TYPE_AOIS, AOIS_SUBCMD_WRITE, (char *)&cmd_data,
 							sizeof(cmd_data));
 
@@ -77,9 +107,9 @@ static int aois_reg_read_notifier(struct notifier_block *nb, unsigned long val, 
 
 	memcpy(&addr, data, sizeof(u16));
 	memcpy(&size, ((u8 *)data + 2), sizeof(u8));
-
+#ifdef CONFIG_SHUB_DEBUG
 	shub_infof("[DEBUG] 0x%x %d", addr, size);
-
+#endif
 	ret = shub_send_command_wait(CMD_GETVALUE, SENSOR_TYPE_AOIS, AOIS_SUBCMD_READ, 1000, (char *)data, 3, &buf,
 								 &buf_len, false);
 
@@ -110,18 +140,24 @@ static struct notifier_block aois_read_nb = {
 	.notifier_call = aois_reg_read_notifier,
 };
 
+static struct notifier_block aois_factory_nb = {
+	.notifier_call = aois_cmd_factory_notifier,
+};
+
 void init_shub_aois(void)
 {
 	shub_infof("");
 	cam_ois_cmd_notifier_register(&aois_write_nb);
 	cam_ois_reg_read_notifier_register(&aois_read_nb);
+	cam_ois_factory_mode_notifier_register(&aois_factory_nb);
 }
 
 void remove_shub_aois(void)
 {
 	shub_infof("");
 	cam_ois_cmd_notifier_unregister(&aois_write_nb);
-	cam_ois_reg_read_notifier_register(&aois_read_nb);
+	cam_ois_reg_read_notifier_unregister(&aois_read_nb);
+	cam_ois_factory_mode_notifier_unregister(&aois_factory_nb);
 }
 #else
 void init_shub_aois(void)

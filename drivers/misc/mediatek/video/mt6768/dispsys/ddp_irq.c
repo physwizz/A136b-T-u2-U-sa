@@ -228,6 +228,7 @@ irqreturn_t disp_irq_handler(int irq, void *dev_id)
 			if (!primary_display_is_video_mode() && primary_display_is_tui_started())
 				primary_display_wakeup_pf_thread();
 			//DDPMSG("DSI TE\n");
+			DDPMSG("%s():dsi te_rdy irq", __func__);
 		}
 
 		reg_temp_val = reg_val;
@@ -364,7 +365,7 @@ irqreturn_t disp_irq_handler(int irq, void *dev_id)
 				MMPROFILE_FLAG_END, reg_val,
 				DISP_REG_GET(DISPSYS_RDMA0_BASE + 0x4));
 			rdma_end_time[index] = sched_clock();
-			DDPIRQ("IRQ: RDMA%d frame done!\n", index);
+			DDPMSG("IRQ: RDMA%d frame done!\n", index);
 			rdma_done_irq_cnt[index]++;
 		}
 		if (reg_val & (1 << 1)) {
@@ -373,7 +374,7 @@ irqreturn_t disp_irq_handler(int irq, void *dev_id)
 				MMPROFILE_FLAG_START, reg_val,
 				DISP_REG_GET(DISPSYS_RDMA0_BASE + 0x4));
 			rdma_start_time[index] = sched_clock();
-			DDPIRQ("IRQ: RDMA%d frame start!\n", index);
+			DDPMSG("IRQ: RDMA%d frame start!\n", index);
 			rdma_start_irq_cnt[index]++;
 			if (!primary_display_is_video_mode() && !primary_display_is_tui_started())
 				primary_display_wakeup_pf_thread();

@@ -461,3 +461,9 @@ config MTK_NET_LOGGING
 	bool "Enable MTK Network debug log"
 	---help---
 	  This config helps to enable/disable Network debug log
+
+config NO_BPF_FORWARDING
+	bool "Enable to no_bpf_forwarding"
+	default n
+	help
+	  This option enables no_bpf_forwarding.

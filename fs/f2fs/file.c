@@ -3515,7 +3515,8 @@ static int f2fs_release_compress_blocks(struct file *filp, unsigned long arg)
 		goto out;
 	}
 
-	if (is_inode_flag_set(inode, FI_COMPRESS_RELEASED)) {
+	if (is_inode_flag_set(inode, FI_COMPRESS_RELEASED) ||
+			IS_IMMUTABLE(inode)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -3774,7 +3775,8 @@ static int f2fs_ioc_stat_compress_file(struct file *filp, unsigned long arg)
 		return -EFAULT;
 
 	compStat.st_blocks = inode->i_blocks;
-	if (unlikely(f2fs_compressed_file(inode))) {
+	if (unlikely(f2fs_compressed_file(inode)) &&
+			(atomic_read(&F2FS_I(inode)->i_compr_blocks) > 0)) {
 		compStat.st_compressed_blocks = atomic_read(&F2FS_I(inode)->i_compr_blocks);
 		compStat.out_compressed = 1;
 	} else {
@@ -3788,7 +3790,7 @@ static int f2fs_ioc_stat_compress_file(struct file *filp, unsigned long arg)
 		heimdallfs_stat.nr_pkgs++;
 		heimdallfs_stat.nr_pkg_blks += compStat.st_blocks;
 
-		if (unlikely(f2fs_compressed_file(inode))) {
+		if (unlikely(f2fs_compressed_file(inode)) && (compStat.st_compressed_blocks > 0)) {
 			heimdallfs_stat.nr_comp_pkgs++;
 			heimdallfs_stat.nr_comp_pkg_blks += compStat.st_blocks;
 			heimdallfs_stat.nr_comp_saved_blks += compStat.st_compressed_blocks;

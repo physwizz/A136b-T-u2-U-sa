@@ -411,6 +411,36 @@ void pdc_get_cap_max_watt(void)
 	}
 }
 
+void pdc_usbpd_forced_change_srccap(int max_cur)
+{
+	struct tcpm_power_cap cap;
+	struct tcpc_device *tcpc;
+	uint32_t pdo_cur = 0;
+
+	tcpc = tcpc_dev_get_by_name("type_c_port0");
+	if (!tcpc) {
+		pr_err("%s get tcpc dev fail\n", __func__);
+		return;
+	}
+
+	tcpm_inquire_pd_local_source_cap(tcpc, &cap); // save the previous src_cap
+
+	/*
+	 * B19...10 : Voltage in 50mV units
+	 * B9...0 : Maximum Current in 10mA units
+	 */
+	/* 5V */
+	pdo_cur = 0x00019000;
+	max_cur /= 10;
+	pdo_cur = pdo_cur | (uint32_t)max_cur;
+	pr_info("%s : Force set PDO current: %08x(%d)\n",
+		__func__, pdo_cur, (int)((pdo_cur & 0x00003FF) * 10));
+	cap.pdos[0] = pdo_cur;
+
+	tcpm_set_pd_local_source_cap(tcpc, &cap);  // set the new src_cap
+	tcpm_dpm_pd_source_cap(tcpc, NULL);  // send out src_cap PD msg
+}
+
 #if defined(CONFIG_BATTERY_SAMSUNG)
 int pdc_clear(void)
 {
@@ -822,6 +852,7 @@ int pdc_init(void)
 		fp_select_pdo = pdc_select_pdo;
 		fp_sec_pd_select_pps = pdc_select_pps;
 		fp_sec_pd_get_apdo_max_power = pdc_get_apdo_max_power;
+		fp_sec_pd_change_src = pdc_usbpd_forced_change_srccap;
 #else
 		pd_noti.sink_status.fp_sec_pd_select_pdo = pdc_select_pdo;
 		pd_noti.sink_status.fp_sec_pd_select_pps = pdc_select_pps;

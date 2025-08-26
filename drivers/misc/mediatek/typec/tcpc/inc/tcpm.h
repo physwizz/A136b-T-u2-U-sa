@@ -585,6 +585,7 @@ enum TCP_DPM_EVT_ID {
 	TCP_DPM_EVT_GET_SOURCE_CAP,
 	TCP_DPM_EVT_GET_SINK_CAP,
 
+	TCP_DPM_EVT_SOURCE_CAP,
 	TCP_DPM_EVT_REQUEST,
 	TCP_DPM_EVT_REQUEST_EX,
 	TCP_DPM_EVT_REQUEST_AGAIN,
@@ -963,6 +964,12 @@ extern int tcpm_get_remote_power_cap(struct tcpc_device *tcpc,
 extern int tcpm_inquire_select_source_cap(
 	struct tcpc_device *tcpc, struct tcpm_power_cap_val *cap_val);
 
+extern int tcpm_inquire_pd_local_source_cap(
+	struct tcpc_device *tcpc, struct tcpm_power_cap *cap);
+
+extern int tcpm_set_pd_local_source_cap(
+	struct tcpc_device *tcpc, struct tcpm_power_cap *cap);
+
 /* Request TCPM to send PD Request */
 
 extern int tcpm_dpm_pd_power_swap(struct tcpc_device *tcpc,
@@ -978,6 +985,8 @@ extern int tcpm_dpm_pd_soft_reset(struct tcpc_device *tcpc,
 extern int tcpm_dpm_pd_get_source_cap(struct tcpc_device *tcpc,
 	const struct tcp_dpm_event_cb_data *data);
 extern int tcpm_dpm_pd_get_sink_cap(struct tcpc_device *tcpc,
+	const struct tcp_dpm_event_cb_data *data);
+extern int tcpm_dpm_pd_source_cap(struct tcpc_device *tcpc,
 	const struct tcp_dpm_event_cb_data *data);
 extern int tcpm_dpm_pd_request(struct tcpc_device *tcpc,
 	int mv, int ma, const struct tcp_dpm_event_cb_data *data);
@@ -1543,6 +1552,18 @@ static inline int tcpm_inquire_select_source_cap(
 	return TCPM_ERROR_NO_IMPLEMENT;
 }
 
+static inline int tcpm_inquire_pd_local_source_cap(
+	struct tcpc_device *tcpc, struct tcpm_power_cap *cap)
+{
+	return TCPM_ERROR_NO_IMPLEMENT;
+}
+
+static inline int tcpm_set_pd_local_source_cap(
+	struct tcpc_device *tcpc, struct tcpm_power_cap *cap)
+{
+	return TCPM_ERROR_NO_IMPLEMENT;
+}
+
 static inline int tcpm_dpm_pd_power_swap(struct tcpc_device *tcpc,
 	uint8_t role, const struct tcp_dpm_event_cb_data *data)
 {
@@ -1580,6 +1601,12 @@ static inline int tcpm_dpm_pd_get_source_cap(struct tcpc_device *tcpc,
 }
 
 static inline int tcpm_dpm_pd_get_sink_cap(struct tcpc_device *tcpc,
+	const struct tcp_dpm_event_cb_data *data)
+{
+	return TCPM_ERROR_NO_IMPLEMENT;
+}
+
+static inline int tcpm_dpm_pd_source_cap(struct tcpc_device *tcpc,
 	const struct tcp_dpm_event_cb_data *data)
 {
 	return TCPM_ERROR_NO_IMPLEMENT;

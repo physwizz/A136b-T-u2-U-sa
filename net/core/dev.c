@@ -4221,6 +4221,22 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 			 * before clearing __QDISC_STATE_SCHED
 			 */
 			smp_mb__before_atomic();
+				
+			if (unlikely(test_bit(__QDISC_STATE_DEACTIVATED,
+						     &q->state))) {
+				/* There is a synchronize_net() between
+				 * STATE_DEACTIVATED flag being set and
+				 * qdisc_reset()/some_qdisc_is_busy() in
+				 * dev_deactivate(), so we can safely bail out
+				 * early here to avoid data race between
+				 * qdisc_deactivate() and some_qdisc_is_busy()
+				 * for lockless qdisc.
+				 */
+				clear_bit(__QDISC_STATE_SCHED, &q->state);
+				spin_unlock(root_lock);
+				continue;
+			}
+
 			clear_bit(__QDISC_STATE_SCHED, &q->state);
 			qdisc_run(q);
 			spin_unlock(root_lock);
@@ -4259,31 +4275,34 @@ sch_handle_ingress(struct sk_buff *skb, struct packet_type **pt_prev, int *ret,
 	skb->tc_at_ingress = 1;
 	qdisc_bstats_cpu_update(cl->q, skb);
 
-	switch (tcf_classify(skb, cl, &cl_res, false)) {
-	case TC_ACT_OK:
-	case TC_ACT_RECLASSIFY:
-		skb->tc_index = TC_H_MIN(cl_res.classid);
-		break;
-	case TC_ACT_SHOT:
-		qdisc_qstats_cpu_drop(cl->q);
-		kfree_skb(skb);
-		return NULL;
-	case TC_ACT_STOLEN:
-	case TC_ACT_QUEUED:
-	case TC_ACT_TRAP:
-		consume_skb(skb);
-		return NULL;
-	case TC_ACT_REDIRECT:
-		/* skb_mac_header check was done by cls/act_bpf, so
-		 * we can safely push the L2 header back before
-		 * redirecting to another netdev
-		 */
-		__skb_push(skb, skb->mac_len);
-		skb_do_redirect(skb);
-		return NULL;
-	default:
-		break;
-	}
+#ifdef CONFIG_NO_BPF_FORWARDING
+	if (strncmp(skb->dev->name, "rmnet", 2) && strncmp(skb->dev->name, "swlan", 2))
+#endif
+		switch (tcf_classify(skb, cl, &cl_res, false)) {
+			case TC_ACT_OK:
+			case TC_ACT_RECLASSIFY:
+				skb->tc_index = TC_H_MIN(cl_res.classid);
+				break;
+			case TC_ACT_SHOT:
+				qdisc_qstats_cpu_drop(cl->q);
+				kfree_skb(skb);
+				return NULL;
+			case TC_ACT_STOLEN:
+			case TC_ACT_QUEUED:
+			case TC_ACT_TRAP:
+				consume_skb(skb);
+				return NULL;
+			case TC_ACT_REDIRECT:
+				/* skb_mac_header check was done by cls/act_bpf, so
+				 * we can safely push the L2 header back before
+				 * redirecting to another netdev
+				 */
+				__skb_push(skb, skb->mac_len);
+				skb_do_redirect(skb);
+				return NULL;
+			default:
+				break;
+		}
 #endif /* CONFIG_NET_CLS_ACT */
 	return skb;
 }

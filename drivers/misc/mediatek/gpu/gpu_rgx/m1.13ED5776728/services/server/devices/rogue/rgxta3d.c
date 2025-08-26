@@ -635,6 +635,13 @@ PVRSRV_ERROR RGXGrowFreeList(RGX_FREELIST *psFreeList,
 		size_t uiNumBytes;
 		PVRSRV_ERROR res;
 		IMG_HANDLE hMapHandle;
+		IMG_DEVMEM_SIZE_T uiPMRSize;
+
+		PMR_LogicalSize(psFreeList->psFreeListPMR, &uiPMRSize);
+
+		/* Check for overflow. Validate size and offset. */
+		PVR_GOTO_IF_INVALID_PARAM(psFreeList->uiFreeListPMROffset + ui32MapSize > psFreeList->uiFreeListPMROffset, eError, ErrorPopulateFreelist);
+		PVR_GOTO_IF_INVALID_PARAM(psFreeList->uiFreeListPMROffset + ui32MapSize <= uiPMRSize, eError, ErrorPopulateFreelist);
 
 		/* Map both the FL and the shadow FL */
 		res = PMRAcquireKernelMappingData(psFreeList->psFreeListPMR, psFreeList->uiFreeListPMROffset, ui32MapSize,
@@ -1516,6 +1523,43 @@ AllocError:
 	return eError;
 }
 
+static void RGXDestroyHWRTData_aux(RGX_KM_HW_RT_DATASET *psKMHWRTDataSet)
+{
+	PVRSRV_RGXDEV_INFO *psDevInfo = psKMHWRTDataSet->psDeviceNode->pvDevice;
+	IMG_UINT32 ui32Loop;
+
+	if (psKMHWRTDataSet->psRTArrayFwMemDesc) {
+		RGXUnsetFirmwareAddress(psKMHWRTDataSet->psRTArrayFwMemDesc);
+		DevmemFwUnmapAndFree(psDevInfo,
+		psKMHWRTDataSet->psRTArrayFwMemDesc);
+	}
+
+if (psKMHWRTDataSet->psRendersAccArrayFwMemDesc) {
+	RGXUnsetFirmwareAddress(psKMHWRTDataSet->psRendersAccArrayFwMemDesc);
+DevmemFwUnmapAndFree(psDevInfo, psKMHWRTDataSet->psRendersAccArrayFwMemDesc);
+	}
+
+	/* Decrease freelist refcount */
+	OSLockAcquire(psDevInfo->hLockFreeList);
+for (ui32Loop = 0; ui32Loop < RGXFW_MAX_FREELISTS; ui32Loop++) {
+	PVR_ASSERT(psKMHWRTDataSet->apsFreeLists[ui32Loop]->ui32RefCount > 0);
+	psKMHWRTDataSet->apsFreeLists[ui32Loop]->ui32RefCount--;
+	}
+#if !defined(SUPPORT_SHADOW_FREELISTS)
+	dllist_remove_node(&psKMHWRTDataSet->sNodeHWRTData);
+#endif
+	OSLockRelease(psDevInfo->hLockFreeList);
+
+/* Freeing the memory has to happen _after_ removing the HWRTData from
+ * the freelist ,otherwise we risk traversing the freelist to find a pointer
+ * from a freed data structure
+ */
+	RGXUnsetFirmwareAddress(psKMHWRTDataSet->psHWRTDataFwMemDesc);
+	DevmemFwUnmapAndFree(psDevInfo, psKMHWRTDataSet->psHWRTDataFwMemDesc);
+
+	OSFreeMem(psKMHWRTDataSet);
+}
+
 /* Create set of HWRTData(s) and bind it with a shared FW HWRTDataCommon */
 PVRSRV_ERROR RGXCreateHWRTDataSet(CONNECTION_DATA      *psConnection,
 		PVRSRV_DEVICE_NODE	*psDeviceNode,
@@ -1699,20 +1743,18 @@ PVRSRV_ERROR RGXCreateHWRTDataSet(CONNECTION_DATA      *psConnection,
 	}
 	psHWRTDataCommonCookie->ui32RefCount += 1;
 
-
 	return PVRSRV_OK;
 
-
 err_HWRTDataAlloc_1:
+	RGXDestroyHWRTData_aux(*ppsKMHWRTDataSet_0);
+	*ppsKMHWRTDataSet_0 = NULL;
 err_HWRTDataAlloc_0:
 err_HWRTDataCommonVA:
 	RGXUnsetFirmwareAddress(psHWRTDataCommonFwMemDesc);
 err_HWRTDataCommonFwAddr:
 	DevmemFwUnmapAndFree(psDevInfo, psHWRTDataCommonFwMemDesc);
-
 err_HWRTDataCommonAlloc:
 	OSFreeMem(psHWRTDataCommonCookie);
-
 err_HWRTDataCommonCookieAlloc:
 
 	return eError;
@@ -1725,53 +1767,31 @@ err_HWRTDataCommonCookieAlloc:
 PVRSRV_ERROR RGXDestroyHWRTDataSet(RGX_KM_HW_RT_DATASET *psKMHWRTDataSet)
 {
 	PVRSRV_RGXDEV_INFO *psDevInfo;
+	PVRSRV_DEVICE_NODE *psDevNode;
 	PVRSRV_ERROR eError;
 	PRGXFWIF_HWRTDATA psHWRTData;
-	IMG_UINT32 ui32Loop;
+	RGX_HWRTDATA_COMMON_COOKIE *psCommonCookie;
 
 	PVR_ASSERT(psKMHWRTDataSet);
 
-	psDevInfo = psKMHWRTDataSet->psDeviceNode->pvDevice;
+	psDevNode = psKMHWRTDataSet->psDeviceNode;
+	psDevInfo = psDevNode->pvDevice;
 
-	eError = RGXSetFirmwareAddress(&psHWRTData, psKMHWRTDataSet->psHWRTDataFwMemDesc, 0, RFW_FWADDR_NOREF_FLAG);
+	eError = RGXSetFirmwareAddress(&psHWRTData,
+				psKMHWRTDataSet->psHWRTDataFwMemDesc, 0,
+				RFW_FWADDR_NOREF_FLAG);
 	PVR_RETURN_IF_ERROR(eError);
 
 	/* Cleanup HWRTData */
-	eError = RGXFWRequestHWRTDataCleanUp(psKMHWRTDataSet->psDeviceNode, psHWRTData);
-
-	if (eError == PVRSRV_ERROR_RETRY)
+	eError = RGXFWRequestHWRTDataCleanUp(psDevNode, psHWRTData);
+	if (eError != PVRSRV_OK)
 	{
 		return eError;
 	}
 
-	if (psKMHWRTDataSet->psRTArrayFwMemDesc)
-	{
-		RGXUnsetFirmwareAddress(psKMHWRTDataSet->psRTArrayFwMemDesc);
-		DevmemFwUnmapAndFree(psDevInfo, psKMHWRTDataSet->psRTArrayFwMemDesc);
-	}
+	psCommonCookie = psKMHWRTDataSet->psHWRTDataCommonCookie;
 
-	if (psKMHWRTDataSet->psRendersAccArrayFwMemDesc)
-	{
-		RGXUnsetFirmwareAddress(psKMHWRTDataSet->psRendersAccArrayFwMemDesc);
-		DevmemFwUnmapAndFree(psDevInfo, psKMHWRTDataSet->psRendersAccArrayFwMemDesc);
-	}
-
-	/* Decrease freelist refcount */
-	OSLockAcquire(psDevInfo->hLockFreeList);
-	for (ui32Loop = 0; ui32Loop < RGXFW_MAX_FREELISTS; ui32Loop++)
-	{
-		PVR_ASSERT(psKMHWRTDataSet->apsFreeLists[ui32Loop]->ui32RefCount > 0);
-		psKMHWRTDataSet->apsFreeLists[ui32Loop]->ui32RefCount--;
-	}
-#if !defined(SUPPORT_SHADOW_FREELISTS)
-	dllist_remove_node(&psKMHWRTDataSet->sNodeHWRTData);
-#endif
-	OSLockRelease(psDevInfo->hLockFreeList);
-
-	/* Freeing the memory has to happen _after_ removing the HWRTData from the freelist
-	 * otherwise we risk traversing the freelist to find a pointer from a freed data structure */
-	RGXUnsetFirmwareAddress(psKMHWRTDataSet->psHWRTDataFwMemDesc);
-	DevmemFwUnmapAndFree(psDevInfo, psKMHWRTDataSet->psHWRTDataFwMemDesc);
+	RGXDestroyHWRTData_aux(psKMHWRTDataSet);
 
 	/* We punched through potential PVRSRV_ERROR_RETRY events, so we are
 	   sure that the HWRTDATA instance will be destroyed during this call.
@@ -1786,26 +1806,25 @@ PVRSRV_ERROR RGXDestroyHWRTDataSet(RGX_KM_HW_RT_DATASET *psKMHWRTDataSet)
 	     objects will be destroyed after destruction of all HWRTDatas
 	     within a single pair.
 	*/
-	psKMHWRTDataSet->psHWRTDataCommonCookie->ui32RefCount--;
+	psCommonCookie->ui32RefCount--;
 
 	/* When ref count for HWRTDataCommonCookie hits ZERO
-	   we have to destroy the HWRTDataCommon [FW object] and the cookie [KM object] afterwards.
-	*/
-	if (psKMHWRTDataSet->psHWRTDataCommonCookie->ui32RefCount == 0)
+	 * we have to destroy the HWRTDataCommon [FW object]
+	 * and the cookie [KM object] afterwards.
+	 */
+if (psCommonCookie->ui32RefCount == 0)
 	{
-		PVRSRV_DEVICE_NODE *psDeviceNode = psKMHWRTDataSet->psDeviceNode;
-
-		RGXUnsetFirmwareAddress(psKMHWRTDataSet->psHWRTDataCommonCookie->psHWRTDataCommonFwMemDesc);
+	RGXUnsetFirmwareAddress(psCommonCookie->psHWRTDataCommonFwMemDesc);
 
 		/* We don't need to flush the SLC before freeing.
-		   FW RequestCleanUp has already done that for HWRTData, so we're fine now.
-		*/
+		 * FW RequestCleanUp has already done that for HWRTData,
+		 * so we're fine now.
+		 */
 
-		DevmemFwUnmapAndFree(psDeviceNode->pvDevice, psKMHWRTDataSet->psHWRTDataCommonCookie->psHWRTDataCommonFwMemDesc);
-		OSFreeMem(psKMHWRTDataSet->psHWRTDataCommonCookie);
+		DevmemFwUnmapAndFree(psDevNode->pvDevice,
+		psCommonCookie->psHWRTDataCommonFwMemDesc);
+		OSFreeMem(psCommonCookie);
 	}
-
-	OSFreeMem(psKMHWRTDataSet);
 
 	return PVRSRV_OK;
 }
@@ -1896,7 +1915,11 @@ PVRSRV_ERROR RGXCreateFreeList(CONNECTION_DATA      *psConnection,
 
 	/* Initialise host data structures */
 	psFreeList->psDevInfo = psDevInfo;
+
 	psFreeList->psFreeListPMR = psFreeListPMR;
+	/* Ref the PMR to prevent resource beeing destroyed before use */
+	PMRRefPMR(psFreeList->psFreeListPMR);
+
 	psFreeList->uiFreeListPMROffset = uiFreeListPMROffset;
 	psFreeList->psFWFreelistMemDesc = psFWFreelistMemDesc;
 	eError = RGXSetFirmwareAddress(&psFreeList->sFreeListFWDevVAddr, psFWFreelistMemDesc, 0, RFW_FWADDR_FLAG_NONE);
@@ -2037,6 +2060,7 @@ FWFreeListCpuMap:
 
 ErrorSetFwAddr:
 	DevmemFwUnmapAndFree(psDevInfo, psFWFreelistMemDesc);
+	PMRUnrefPMR(psFreeList->psFreeListPMR);
 
 FWFreeListAlloc:
 	OSFreeMem(psFreeList);
@@ -2128,6 +2152,9 @@ PVRSRV_ERROR RGXDestroyFreeList(RGX_FREELIST *psFreeList)
 	PVR_ASSERT(dllist_is_empty(&psFreeList->sMemoryBlockInitHead));
 	PVR_ASSERT(psFreeList->ui32CurrentFLPages == 0);
 
+	/* Remove reference from the PMR resource */
+	PMRUnrefPMR(psFreeList->psFreeListPMR);
+
 	/* free Freelist */
 	OSFreeMem(psFreeList);
 
@@ -2137,13 +2164,30 @@ PVRSRV_ERROR RGXDestroyFreeList(RGX_FREELIST *psFreeList)
 
 /*
 	RGXCreateZSBuffer
- */
+*/
 PVRSRV_ERROR RGXCreateZSBufferKM(CONNECTION_DATA * psConnection,
-		PVRSRV_DEVICE_NODE	*psDeviceNode,
-		DEVMEMINT_RESERVATION	*psReservation,
-		PMR						*psPMR,
-		PVRSRV_MEMALLOCFLAGS_T	uiMapFlags,
-		RGX_ZSBUFFER_DATA **ppsZSBuffer)
+                                 PVRSRV_DEVICE_NODE	*psDeviceNode,
+                                 DEVMEMINT_RESERVATION	*psReservation,
+                                 PMR					*psPMR,
+                                 PVRSRV_MEMALLOCFLAGS_T		uiMapFlags,
+                                 RGX_ZSBUFFER_DATA **ppsZSBuffer)
+{
+	PVR_UNREFERENCED_PARAMETER(psConnection);
+	PVR_UNREFERENCED_PARAMETER(psDeviceNode);
+	PVR_UNREFERENCED_PARAMETER(psReservation);
+	PVR_UNREFERENCED_PARAMETER(psPMR);
+	PVR_UNREFERENCED_PARAMETER(uiMapFlags);
+	PVR_UNREFERENCED_PARAMETER(ppsZSBuffer);
+
+	return PVRSRV_ERROR_NOT_IMPLEMENTED;
+}
+
+PVRSRV_ERROR RGXCreateZSBufferKM2(CONNECTION_DATA * psConnection,
+                                 PVRSRV_DEVICE_NODE	*psDeviceNode,
+                                 DEVMEMINT_RESERVATION2	*psReservation,
+                                 PMR					*psPMR,
+                                 PVRSRV_MEMALLOCFLAGS_T		uiMapFlags,
+                                 RGX_ZSBUFFER_DATA **ppsZSBuffer)
 {
 	PVRSRV_ERROR				eError;
 	PVRSRV_RGXDEV_INFO			*psDevInfo = psDeviceNode->pvDevice;
@@ -2166,15 +2210,26 @@ PVRSRV_ERROR RGXCreateZSBufferKM(CONNECTION_DATA * psConnection,
 	/* Populate Host data */
 	psZSBuffer->psDevInfo = psDevInfo;
 	psZSBuffer->psReservation = psReservation;
+
+	/* Obtain reference to reservation object */
+	if (!DevmemIntReservationAcquire(psZSBuffer->psReservation))
+	{
+		PVR_DPF((PVR_DBG_ERROR,
+				"%s: Failed to acquire reservation for ZS-Buffer",
+				__func__));
+		eError = PVRSRV_ERROR_REFCOUNT_OVERFLOW;
+		goto ErrorReservationAcquire;
+	}
+
 	psZSBuffer->psPMR = psPMR;
-	psZSBuffer->uiMapFlags = uiMapFlags;
+	/* Obtain reference to PMR */
+	PMRRefPMR(psZSBuffer->psPMR);
+
 	psZSBuffer->ui32RefCount = 0;
 	psZSBuffer->bOnDemand = bOnDemand;
 	if (bOnDemand)
 	{
 		/* psZSBuffer->ui32ZSBufferID set below with lock... */
-		psZSBuffer->psMapping = NULL;
-
 		OSLockAcquire(psDevInfo->hLockZSBuffer);
 		psZSBuffer->ui32ZSBufferID = psDevInfo->ui32ZSBufferCurrID++;
 		dllist_add_to_tail(&psDevInfo->sZSBufferHead, &psZSBuffer->sNode);
@@ -2256,6 +2311,9 @@ ErrorAcquireFWZSBuffer:
 	DevmemFwUnmapAndFree(psDevInfo, psFWZSBufferMemDesc);
 
 ErrorAllocFWZSBuffer:
+	PMRUnrefPMR(psZSBuffer->psPMR);
+	DevmemIntReservationRelease(psZSBuffer->psReservation);
+ErrorReservationAcquire:
 	OSFreeMem(psZSBuffer);
 
 ErrorAllocCleanup:
@@ -2275,10 +2333,17 @@ PVRSRV_ERROR RGXDestroyZSBufferKM(RGX_ZSBUFFER_DATA *psZSBuffer)
 	PVR_ASSERT(psZSBuffer);
 	hLockZSBuffer = psZSBuffer->psDevInfo->hLockZSBuffer;
 
+	if (psZSBuffer->ui32RefCount != 0)
+	{
+		PVR_ASSERT(IMG_FALSE);
+		/* ZS-Buffer is still referenced (by population object) */
+		return PVRSRV_ERROR_RETRY;
+	}
+
 	/* Request ZS Buffer cleanup */
 	eError = RGXFWRequestZSBufferCleanUp(psZSBuffer->psDevInfo,
 			psZSBuffer->sZSBufferFWDevVAddr);
-	if (eError != PVRSRV_ERROR_RETRY)
+	if (eError == PVRSRV_OK)
 	{
 		/* Free the firmware render context. */
 		RGXUnsetFirmwareAddress(psZSBuffer->psFWZSBufferMemDesc);
@@ -2293,9 +2358,11 @@ PVRSRV_ERROR RGXDestroyZSBufferKM(RGX_ZSBUFFER_DATA *psZSBuffer)
 			OSLockRelease(hLockZSBuffer);
 		}
 
-		PVR_ASSERT(psZSBuffer->ui32RefCount == 0);
-
 		PVR_DPF((PVR_DBG_MESSAGE, "ZS-Buffer [%p] destroyed", psZSBuffer));
+
+		/* Release reference to reservation object and the PMR */
+		PMRUnrefPMR(psZSBuffer->psPMR);
+		DevmemIntReservationRelease(psZSBuffer->psReservation);
 
 		/* Free ZS-Buffer host data structure */
 		OSFreeMem(psZSBuffer);
@@ -2336,22 +2403,17 @@ RGXBackingZSBuffer(RGX_ZSBUFFER_DATA *psZSBuffer)
 		{
 			IMG_HANDLE hDevmemHeap;
 
-			PVR_ASSERT(psZSBuffer->psMapping == NULL);
-
 			/* Get Heap */
 			eError = DevmemServerGetHeapHandle(psZSBuffer->psReservation, &hDevmemHeap);
-			PVR_ASSERT(psZSBuffer->psMapping == NULL);
 			if (unlikely(hDevmemHeap == (IMG_HANDLE)NULL))
 			{
 				OSLockRelease(hLockZSBuffer);
 				return PVRSRV_ERROR_INVALID_HEAP;
 			}
 
-			eError = DevmemIntMapPMR(hDevmemHeap,
-					psZSBuffer->psReservation,
-					psZSBuffer->psPMR,
-					psZSBuffer->uiMapFlags,
-					&psZSBuffer->psMapping);
+			eError = DevmemIntMapPMR2(hDevmemHeap,
+			                         psZSBuffer->psReservation,
+			                         psZSBuffer->psPMR);
 			if (eError != PVRSRV_OK)
 			{
 				PVR_DPF((PVR_DBG_ERROR,
@@ -2447,9 +2509,7 @@ RGXUnbackingZSBuffer(RGX_ZSBUFFER_DATA *psZSBuffer)
 	{
 		if (psZSBuffer->ui32RefCount == 1)
 		{
-			PVR_ASSERT(psZSBuffer->psMapping);
-
-			eError = DevmemIntUnmapPMR(psZSBuffer->psMapping);
+			eError = DevmemIntUnmapPMR2(psZSBuffer->psReservation);
 			if (eError != PVRSRV_OK)
 			{
 				PVR_DPF((PVR_DBG_ERROR,

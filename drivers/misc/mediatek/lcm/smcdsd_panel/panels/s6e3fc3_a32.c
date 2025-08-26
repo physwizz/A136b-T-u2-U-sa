@@ -1287,8 +1287,8 @@ static int fb_notifier_callback(struct notifier_block *self,
 	int fb_blank;
 
 	switch (event) {
-	case FB_EVENT_BLANK:
-	case FB_EARLY_EVENT_BLANK:
+	case SMCDSD_EVENT_BLANK:
+	case SMCDSD_EARLY_EVENT_BLANK:
 	case SMCDSD_EVENT_DOZE:
 	case SMCDSD_EARLY_EVENT_DOZE:
 		break;
@@ -2602,11 +2602,6 @@ static int smcdsd_panel_framedone_mask(struct platform_device *p)
 		} else {
 			lcd->actual_mask_brightness = lcd->mask_brightness;
 		}
-
-		if (lcd->mask_state)
-			dbg_info("[SEC_MASK] mask_done");
-		else
-			dbg_info("[SEC_MASK] prev_done");
 
 		sysfs_notify(&lcd->ld->dev.kobj, NULL, "actual_mask_brightness");
 

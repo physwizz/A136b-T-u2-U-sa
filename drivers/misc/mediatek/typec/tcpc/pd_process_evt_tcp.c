@@ -213,6 +213,14 @@ static inline int pd_handle_tcp_event_bist_cm2(struct pd_port *pd_port)
 	return TCP_DPM_RET_SENT;
 }
 
+static inline int pd_handle_tcp_event_source_cap(struct pd_port *pd_port)
+{
+	if (pd_port->pe_state_curr != PE_SRC_READY)
+		return TCP_DPM_RET_DENIED_NOT_READY;
+
+	PE_TRANSIT_STATE(pd_port, PE_SRC_SEND_CAPABILITIES);
+	return TCP_DPM_RET_SENT;
+}
 #ifdef CONFIG_USB_PD_REV30
 
 #ifdef CONFIG_USB_PD_REV30_SRC_CAP_EXT_REMOTE
@@ -370,6 +378,12 @@ static inline int pd_handle_tcp_dpm_event(
 	case TCP_DPM_EVT_GET_SINK_CAP:
 		ret =  pd_handle_tcp_event_get_sink_cap(pd_port);
 		break;
+
+#ifdef CONFIG_USB_PD_PE_SOURCE
+	case TCP_DPM_EVT_SOURCE_CAP:
+		ret = pd_handle_tcp_event_source_cap(pd_port);
+		break;
+#endif	/* CONFIG_USB_PD_PE_SOURCE */
 
 #ifdef CONFIG_USB_PD_PE_SINK
 	case TCP_DPM_EVT_REQUEST:

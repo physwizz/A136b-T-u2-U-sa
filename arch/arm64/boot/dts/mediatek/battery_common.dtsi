@@ -314,7 +314,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/common/dts/battery_common.a13x.dtsi */
+/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/stable/a13x/common/dts/battery_common.a13x.dtsi */
 &sec_battery {
 		pinctrl-names = "default";
 
@@ -451,7 +451,7 @@
 		};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/common/dts/battery_common.a13x_eur_open.dtsi */
+/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/stable/a13x/common/dts/battery_common.a13x_eur_open.dtsi */
 &sec_battery {
 		battery,temp_table_adc = <
 					205 275 304 314 369 428 512 591 685 794

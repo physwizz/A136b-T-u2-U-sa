@@ -92,6 +92,8 @@ extern void (*fp_select_pdo)(int num);
 extern int (*fp_sec_pd_select_pps)(int num, int ppsVol, int ppsCur);
 extern int (*fp_sec_pd_get_apdo_max_power)(unsigned int *pdo_pos,
 		unsigned int *taMaxVol, unsigned int *taMaxCur, unsigned int *taMaxPwr);
+extern void (*fp_sec_pd_change_src)(int max_cur);
+
 #endif
 int pdc_get_setting(void);
 #endif

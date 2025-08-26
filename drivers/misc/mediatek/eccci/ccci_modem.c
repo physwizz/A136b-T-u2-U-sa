@@ -105,7 +105,7 @@ struct ccci_smem_region md1_6297_noncacheable_fat[] = {
 		{SMEM_USER_CCISM_MCU,		0,	(720+1)*1024,	0, },
 		{SMEM_USER_CCISM_MCU_EXP,	0,	(120+1)*1024,	0, },
 #ifdef CUST_FT_BIGDATA
-		{SMEM_USER_MD_BIGDATA,	0,	512,	0},
+		{SMEM_USER_MD_BIGDATA,	0,	2048,	0},
 		{SMEM_USER_MD_IPCA_BIGDATA,	0,	128,	0},
 #endif
 		{SMEM_USER_MAX, }, /* tail guard */

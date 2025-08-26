@@ -796,7 +796,7 @@ config PROCESS_RECLAIM
 config MEMCG_HEIMDALL
 	bool "memcg optimization for heimdall"
 	depends on MEMCG
-	default y
+	default n
 	help
 	  Enable this will change the memcg-related logics in the way Heimdall
 	  prefers.
@@ -895,5 +895,13 @@ config MAX_DIRTY_THRESH_PAGES
 	  This value is the upper bound of VM dirty-thresh. (0 means no limit.)
 	  It is only effective when dirty_ratio is used.
 	  (Setting dirty_bytes disables this option.)
+
+config HIGHATOMIC_PAGEBLOCKS
+	int "limit max number of highatomic pageblocks"
+	default 0
+	help
+	  By default, "1 percent of managed pages + 1 pageblock" is reserved as
+	  highatomic pageblocks.
+	  This value limits max number of highatomic pageblocks.
 
 source "mm/sec_mm/Kconfig"

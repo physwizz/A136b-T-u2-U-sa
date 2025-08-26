@@ -692,6 +692,48 @@ int tcpm_inquire_select_source_cap(
 	return ret;
 }
 
+int tcpm_inquire_pd_local_source_cap(
+	struct tcpc_device *tcpc, struct tcpm_power_cap *cap)
+{
+	struct pd_port *pd_port = &tcpc->pd_port;
+
+	if (cap == NULL)
+		return TCPM_ERROR_PARAMETER;
+
+	mutex_lock(&pd_port->pd_lock);
+	cap->cnt = pd_port->local_src_cap_default.nr;
+	memcpy(cap->pdos, pd_port->local_src_cap_default.pdos,
+	       sizeof(uint32_t) * cap->cnt);
+	mutex_unlock(&pd_port->pd_lock);
+
+	return TCPM_SUCCESS;
+}
+EXPORT_SYMBOL(tcpm_inquire_pd_local_source_cap);
+
+int tcpm_set_pd_local_source_cap(
+	struct tcpc_device *tcpc, struct tcpm_power_cap *cap)
+{
+	struct pd_port *pd_port = &tcpc->pd_port;
+	struct tcpm_power_cap_val cap_val;
+
+	if (cap == NULL)
+		return TCPM_ERROR_PARAMETER;
+	else if (!tcpm_extract_power_cap_val(cap->pdos[0], &cap_val))
+		return TCPM_ERROR_PARAMETER;
+	else if (cap->cnt == 0 || cap->cnt > 7 ||
+		 cap_val.type != TCPM_POWER_CAP_VAL_TYPE_FIXED ||
+		 cap_val.max_mv != 5000 || cap_val.min_mv != 5000)
+		return TCPM_ERROR_PARAMETER;
+
+	mutex_lock(&pd_port->pd_lock);
+	pd_port->local_src_cap_default.nr = cap->cnt;
+	memcpy(pd_port->local_src_cap_default.pdos, cap->pdos,
+	       sizeof(uint32_t) * cap->cnt);
+	mutex_unlock(&pd_port->pd_lock);
+
+	return TCPM_SUCCESS;
+}
+EXPORT_SYMBOL(tcpm_set_pd_local_source_cap);
 
 /* Request TCPC to send PD Request */
 
@@ -811,6 +853,18 @@ int tcpm_dpm_pd_get_sink_cap(struct tcpc_device *tcpc,
 	return tcpm_put_tcp_dpm_event_cbk1(
 		tcpc, &tcp_event, cb_data, TCPM_BK_PD_CMD_TOUT);
 }
+
+int tcpm_dpm_pd_source_cap(struct tcpc_device *tcpc,
+	const struct tcp_dpm_event_cb_data *cb_data)
+{
+	struct tcp_dpm_event tcp_event = {
+		.event_id = TCP_DPM_EVT_SOURCE_CAP,
+	};
+
+	return tcpm_put_tcp_dpm_event_cbk1(
+		tcpc, &tcp_event, cb_data, TCPM_BK_REQUEST_TOUT);
+}
+EXPORT_SYMBOL(tcpm_dpm_pd_source_cap);
 
 int tcpm_dpm_pd_request(struct tcpc_device *tcpc,
 	int mv, int ma, const struct tcp_dpm_event_cb_data *cb_data)
